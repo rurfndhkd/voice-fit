@@ -38,9 +38,9 @@ final class UtteranceRecorder {
             audio.startRecording();
             if (audio.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) throw new IllegalStateException("audio-start");
             events.ready();
-            long start = SystemClock.elapsedRealtime(), onset = 0, lastVoice = start, lastEvent = 0;
+            long start = SystemClock.elapsedRealtime(), lastEvent = 0;
+            SpeechEndpoint endpoint = new SpeechEndpoint(start, waitMs, maxMs, silenceMs);
             double floor = 0.001;
-            int above = 0, voicedFrames = 0;
             short[] buf = new short[frame];
             while (!stopped) {
                 int n = audio.read(buf, 0, frame);
@@ -56,25 +56,23 @@ final class UtteranceRecorder {
                 double threshold = Math.max(0.0025, Math.min(0.025, floor * 2.8));
                 boolean speech = rms >= threshold;
                 if (!speech) floor = floor * 0.98 + rms * 0.02;
-                above = speech ? above + 1 : 0;
-                if (onset == 0) {
+                boolean wasHeard = endpoint.heard();
+                boolean finished = endpoint.feed(speech, now);
+                if (!wasHeard) {
                     for (byte b : chunk) { preRoll[prePos] = b; prePos = (prePos + 1) % preRoll.length; preCount = Math.min(preRoll.length, preCount + 1); }
-                    if (above >= 3) {
-                        onset = now; lastVoice = now;
+                    if (endpoint.heard()) {
                         for (int i = 0; i < preCount; i++) pcm.write(preRoll[(prePos - preCount + preRoll.length + i) % preRoll.length]);
                     }
                 } else {
                     pcm.write(chunk);
                 }
-                if (speech && onset != 0) { lastVoice = now; voicedFrames++; }
                 if (now - lastEvent >= 100) {
                     lastEvent = now;
-                    events.level(VoicePrint.level(buf, n), speech && onset != 0);
+                    events.level(VoicePrint.level(buf, n), endpoint.voicedAt(now));
                 }
-                if (onset == 0 && now - start >= waitMs) break;
-                if (onset != 0 && (now - lastVoice >= silenceMs || now - onset >= maxMs)) break;
+                if (finished) break;
             }
-            if (cancelled || onset == 0 || voicedFrames < 3) return null;
+            if (cancelled || !endpoint.heard()) return null;
             return wav(pcm.toByteArray(), rate);
         } finally {
             try { audio.stop(); } catch (Exception ignored) { }

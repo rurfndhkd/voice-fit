@@ -4,6 +4,7 @@
 //  - openai : 녹음 → 사용자 키로 OpenAI Whisper 직접 호출. 말이 끝나면 자동으로 멈춘다(간단한 음량 감지).
 import { isNative, nativePlugin } from './config.js';
 import { transcribeWithAI, synthesizeWithAI } from './ai.js';
+import { END_SILENCE_MS, SpeechEndpoint, ActivityGate } from './endpoint.js';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export const browserRecognitionSupported = Boolean(SR);
@@ -36,7 +37,7 @@ function browserEngine() {
   const engine = {
     kind: 'browser',
     candidates: [],
-    listenOnce({ timeoutMs = 0, onInterim, onReady } = {}) {
+    listenOnce({ timeoutMs = 0, onInterim, onReady, onSpeech, onProcessing } = {}) {
       return new Promise((resolve, reject) => {
         const rec = new SR();
         rec.lang = 'ko-KR';
@@ -49,11 +50,20 @@ function browserEngine() {
         let heard = false;
         let error = null;
         let settled = false;
+        let silenceTimer;
+        let cancelled = false;
+        let processing = false;
+        const process = () => { if (!processing) { processing = true; onProcessing?.(); } };
         engine.candidates = [];
         const timer = timeoutMs ? setTimeout(() => { if (!heard) rec.abort(); }, timeoutMs) : null;
         rec.onaudiostart = () => onReady?.();
-        rec.onspeechstart = () => { heard = true; };
+        rec.onspeechstart = () => { clearTimeout(silenceTimer); heard = true; onSpeech?.(); };
+        rec.onspeechend = () => {
+          clearTimeout(silenceTimer);
+          silenceTimer = setTimeout(() => { if (!settled && !cancelled) { process(); rec.stop(); } }, END_SILENCE_MS);
+        };
         rec.onresult = (ev) => {
+          if (settled || cancelled) return;
           heard = true;
           let interim = '';
           for (let i = ev.resultIndex; i < ev.results.length; i++) {
@@ -69,16 +79,20 @@ function browserEngine() {
         rec.onerror = (ev) => { if (!['no-speech', 'aborted', 'no-match'].includes(ev.error)) error = ev.error; };
         rec.onend = () => {
           clearTimeout(timer);
-          current = null;
+          clearTimeout(silenceTimer);
+          if (current === controls) current = null;
           if (settled) return;
           settled = true;
-          const text = (finalText || latest).trim();
-          engine.candidates = [...seen];
+          const text = cancelled ? '' : (finalText || latest).trim();
+          engine.candidates = cancelled ? [] : [...seen];
+          if (cancelled) { resolve(null); return; }
+          if (text) process();
           if (error && !text) reject(new VoiceError(error));
           else resolve(text || null);
         };
-        current = rec;
-        try { rec.start(); } catch (e) { settled = true; reject(new VoiceError('start-failed', e.message)); }
+        const controls = { abort: () => { cancelled = true; clearTimeout(silenceTimer); rec.abort(); }, stop: () => rec.stop() };
+        current = controls;
+        try { rec.start(); } catch (e) { clearTimeout(timer); clearTimeout(silenceTimer); current = null; settled = true; reject(new VoiceError('start-failed', e.message)); }
       });
     },
     cancel() { try { current?.abort(); } catch { /* 이미 종료 */ } },
@@ -90,66 +104,84 @@ function browserEngine() {
 /* ---------------- 녹음 + Whisper ---------------- */
 function recorderEngine() {
   let cancelCurrent = null;
-  return {
+  let stopCurrent = null;
+  const engine = {
     kind: 'openai',
     candidates: [],
-    async listenOnce({ timeoutMs = 0, maxMs = 15000, onInterim } = {}) {
-      let stream;
-      try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { throw new VoiceError('not-allowed'); }
-      const mime = ['audio/webm', 'audio/mp4', 'audio/ogg'].find((m) => MediaRecorder.isTypeSupported?.(m)) || '';
-      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    async listenOnce({ timeoutMs = 30000, maxMs = 30000, onReady, onSpeech, onProcessing, context } = {}) {
+      engine.cancel();
+      engine.candidates = [];
+      const ctrl = new AbortController();
+      let stream, ctx, recorder, timer, finish, recordingError;
       const chunks = [];
-      recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-
-      // 간단한 음량 감지: 말을 시작했는지, 말이 끝났는지(1.2초 조용함) 판단
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const analyser = ctx.createAnalyser();
-      ctx.createMediaStreamSource(stream).connect(analyser);
-      const buf = new Uint8Array(analyser.fftSize);
-      let heard = false;
-      let lastLoud = performance.now();
-      const started = performance.now();
-      let cancelled = false;
-
-      const stopped = new Promise((res) => { recorder.onstop = res; });
-      recorder.start(250);
-      onInterim?.('듣고 있어요…');
-
-      await new Promise((res) => {
-        cancelCurrent = () => { cancelled = true; res(); };
+      const cancel = () => { ctrl.abort(); finish?.(); };
+      cancelCurrent = cancel;
+      try {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+        } catch { throw new VoiceError('not-allowed'); }
+        if (ctrl.signal.aborted) return null;
+        const mime = ['audio/webm', 'audio/mp4', 'audio/ogg'].find((m) => MediaRecorder.isTypeSupported?.(m)) || '';
+        recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+        recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        await ctx.resume();
+        if (ctrl.signal.aborted) return null;
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 512;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        const buf = new Float32Array(analyser.fftSize);
+        const endpoint = new SpeechEndpoint(performance.now(), { waitMs: timeoutMs || 30000, maxMs });
+        const gate = new ActivityGate();
+        const stopped = new Promise((resolve) => { recorder.onstop = () => { finish?.(); resolve(); }; });
+        const listening = new Promise((resolve) => { finish = resolve; });
+        const stop = () => finish();
+        stopCurrent = stop;
+        recorder.onerror = () => { recordingError = new VoiceError('audio-capture'); finish(); };
+        recorder.start(250);
+        onReady?.();
         const tick = () => {
-          if (cancelled) return;
-          analyser.getByteTimeDomainData(buf);
-          let sum = 0;
-          for (const v of buf) sum += (v - 128) ** 2;
-          const rms = Math.sqrt(sum / buf.length);
-          const now = performance.now();
-          if (rms > 12) { heard = true; lastLoud = now; }
-          if (!heard && timeoutMs && now - started > timeoutMs) return res();
-          if (heard && now - lastLoud > 1200) return res();
-          if (now - started > maxMs) return res();
-          requestAnimationFrame(tick);
+          if (ctrl.signal.aborted) return finish();
+          try {
+            analyser.getFloatTimeDomainData(buf);
+            const now = performance.now();
+            const done = endpoint.feed(gate.feed(buf), now);
+            if (endpoint.lastVoice === now) onSpeech?.();
+            if (done) return finish();
+            timer = setTimeout(tick, 20); // Does not depend on animation-frame delivery.
+          } catch { recordingError = new VoiceError('audio-capture'); finish(); }
         };
         tick();
-      });
-      cancelCurrent = null;
-      if (recorder.state === 'recording') recorder.stop();
-      await stopped;
-      stream.getTracks().forEach((t) => t.stop());
-      ctx.close();
-      if (cancelled || !heard || !chunks.length) return null;
-
-      onInterim?.('변환 중…');
-      const fd = new FormData();
-      fd.append('audio', new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }), 'speech');
-      try {
-        return await transcribeWithAI(new Blob(chunks, { type: recorder.mimeType || 'audio/webm' }));
-      } catch {
-        throw new VoiceError('upstream');
+        await listening;
+        clearTimeout(timer);
+        if (stopCurrent === stop) stopCurrent = null;
+        if (recorder.state !== 'inactive') recorder.stop();
+        await stopped;
+        // Release the microphone before waiting for a network response.
+        stream.getTracks().forEach((t) => t.stop());
+        if (ctrl.signal.aborted) return null;
+        if (recordingError) throw recordingError;
+        if (!endpoint.heard || !chunks.length) return null;
+        onProcessing?.();
+        const text = await transcribeWithAI(new Blob(chunks, { type: recorder.mimeType || mime }), { signal: ctrl.signal, context });
+        if (ctrl.signal.aborted) return null;
+        engine.candidates = text ? [text] : [];
+        return text;
+      } catch (e) {
+        if (ctrl.signal.aborted) return null;
+        throw e instanceof VoiceError ? e : new VoiceError(e.code || 'upstream');
+      } finally {
+        clearTimeout(timer);
+        if (recorder && recorder.state !== 'inactive') { try { recorder.stop(); } catch { /* already stopped */ } }
+        stream?.getTracks().forEach((t) => t.stop());
+        if (ctx) await ctx.close().catch(() => {});
+        if (cancelCurrent === cancel) { cancelCurrent = null; stopCurrent = null; }
       }
     },
     cancel() { cancelCurrent?.(); },
+    stop() { stopCurrent?.(); },
   };
+  return engine;
 }
 
 /* ---------------- 안드로이드 앱 ---------------- */
@@ -312,7 +344,7 @@ export function nativeCloudEngine() {
         }));
         if (ctrl.signal.aborted) return null;
         engine.candidates = [];
-        recording = plugin.recordUtterance({ id, waitMs: options.timeoutMs || 30000, maxMs: 30000, silenceMs: 1800 });
+        recording = plugin.recordUtterance({ id, waitMs: options.timeoutMs || 30000, maxMs: 30000, silenceMs: END_SILENCE_MS });
         const result = await recording;
         if (ctrl.signal.aborted || !result.wav) return null;
         options.onProcessing?.();

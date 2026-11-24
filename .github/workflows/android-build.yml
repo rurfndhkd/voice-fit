@@ -2,6 +2,7 @@ name: Android full build
 on:
   push:
     branches: [feature/android-build]
+    paths: ['android/**', 'public/**', 'tests/**', 'package*.json', '.github/workflows/android-build.yml']
   pull_request:
     paths: ['android/**', 'public/**', 'tests/**', 'package*.json', '.github/workflows/android-build.yml']
   workflow_dispatch:

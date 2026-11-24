@@ -1,0 +1,8 @@
+{
+  "appId": "com.voicefit.app",
+  "appName": "VOICE FIT",
+  "webDir": "public",
+  "android": {
+    "allowMixedContent": false
+  }
+}

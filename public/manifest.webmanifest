@@ -1,0 +1,16 @@
+{
+  "name": "VOICE FIT - 음성 AI 운동 트레이너",
+  "short_name": "VOICE FIT",
+  "description": "말로 기록하는 AI 운동 트레이너",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0d10",
+  "theme_color": "#0b0d10",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

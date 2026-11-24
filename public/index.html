@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="ko" data-theme="dark-sport">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0d10" />
+  <meta name="description" content="말로 기록하는 AI 운동 트레이너. 호출어로 부르고, 말로 기록하고, 소리 내어 세면 개수를 세어 줍니다." />
+  <title>VOICE FIT</title>
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icon.svg" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand" aria-label="VOICE FIT">VOICE<span>FIT</span></div>
+    <span id="aiStatus" class="pill" title="AI 연결 상태">확인 중…</span>
+  </header>
+
+  <main>
+    <!-- 홈 -->
+    <section id="view-home" class="view active" aria-labelledby="homeTitle">
+      <h1 id="homeTitle" class="sr-only">음성으로 운동 기록</h1>
+
+      <div id="voiceBanner" class="card voice-banner" hidden>
+        <b>내 목소리를 한 번만 등록해 주세요</b>
+        <p class="muted small">등록하면 주변 소음과 다른 사람 목소리는 무시하고 내 목소리만 들어요. (약 10초)</p>
+        <div class="btn-row">
+          <button id="voiceBannerBtn" class="btn small" type="button">지금 등록하기</button>
+          <button id="voiceBannerLater" class="btn ghost small" type="button">나중에</button>
+        </div>
+      </div>
+
+      <div class="listen-bar">
+        <button id="listenBtn" class="listen-btn" type="button" aria-pressed="false">
+          <span class="dot" aria-hidden="true"></span><span id="listenLabel">호출어 듣기</span>
+        </button>
+        <button id="countBtn" class="btn ghost small" type="button">카운트 모드</button>
+        <button id="aiVoiceBtn" class="btn ghost small" type="button" aria-pressed="false" title="AI 목소리 켜기/끄기 (추가 사용료)">AI 목소리 꺼짐</button>
+      </div>
+      <p id="listenStatus" class="listen-status" aria-live="polite"></p>
+
+      <!-- 카운터 -->
+      <div id="counter" class="counter card" hidden aria-live="polite">
+        <div class="counter-head">
+          <div>
+            <div id="counterActivity" class="counter-activity"></div>
+            <div id="counterSets" class="muted small"></div>
+          </div>
+          <div class="counter-num"><b id="counterValue">0</b><span><span id="counterGoal" class="counter-goal"></span>개</span></div>
+        </div>
+        <p class="muted small">“하나, 둘, 셋…” 하고 세 주세요 · “끝” = 세트 완료 · “운동 끝” = 저장</p>
+        <div class="counter-actions">
+          <button class="btn ghost small" type="button" data-count="-1" aria-label="1개 빼기">−1</button>
+          <button class="btn ghost small" type="button" data-count="+1" aria-label="1개 더하기">+1</button>
+          <button class="btn small" type="button" data-count="set">세트 끝</button>
+          <button class="btn danger small" type="button" data-count="end">운동 끝</button>
+        </div>
+      </div>
+
+      <!-- 타이머 (시간 운동) -->
+      <div id="timer" class="counter card timer" hidden aria-live="polite">
+        <div class="counter-head">
+          <div>
+            <div id="timerActivity" class="counter-activity"></div>
+            <div id="timerSets" class="muted small"></div>
+          </div>
+          <div class="counter-num"><b id="timerValue">0:00</b></div>
+        </div>
+        <div class="counter-actions timer-actions">
+          <button id="timerStartBtn" class="btn" type="button" data-timer="start">시작</button>
+          <button id="timerStopBtn" class="btn danger" type="button" data-timer="stop" hidden>그만</button>
+        </div>
+      </div>
+      <!-- PLAN 12 · 휴식 타이머 (쉬는 중일 때만) -->
+      <div id="rest" class="counter card timer rest running" hidden aria-live="polite">
+        <div class="counter-head">
+          <div>
+            <div class="counter-activity">휴식</div>
+            <div id="restInfo" class="muted small"></div>
+          </div>
+          <div class="counter-num"><b id="restValue">0:00</b></div>
+        </div>
+        <div class="counter-actions timer-actions">
+          <button id="restEndBtn" class="btn danger" type="button">휴식 끝</button>
+        </div>
+      </div>
+
+      <div class="mic-wrap">
+        <button id="micBtn" class="mic" type="button" aria-label="말하기">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+        </button>
+      </div>
+      <p id="micState" class="mic-state" aria-live="polite">눌러서 말하기</p>
+      <p id="transcript" class="transcript"></p>
+
+      <div id="convo" class="convo" aria-live="polite"></div>
+
+      <form id="textForm" class="text-form" autocomplete="off">
+        <label for="textInput" class="sr-only">직접 입력</label>
+        <input id="textInput" type="text" maxlength="200" placeholder="직접 입력: 스쿼트 15개 3세트" />
+        <button type="submit" class="btn">보내기</button>
+      </form>
+
+      <div class="section-head">
+        <h2>오늘 <span id="todayCount" class="muted small"></span></h2>
+        <div id="todayActions" class="btn-row" hidden>
+          <button id="todaySelectBtn" class="btn ghost small" type="button">선택 삭제</button>
+          <button id="todayClearBtn" class="btn danger small" type="button">전체 삭제</button>
+        </div>
+      </div>
+      <div id="selectBar" class="select-bar" hidden>
+        <label class="select-all"><input id="selectAll" type="checkbox" /> 전체 선택</label>
+        <span id="selectCount" class="muted small">0개 선택</span>
+        <button id="deleteSelectedBtn" class="btn danger small" type="button" disabled>삭제</button>
+        <button id="selectCancelBtn" class="btn ghost small" type="button">취소</button>
+      </div>
+      <p class="lock-note muted small">잠금을 풀면 오늘 기록과 대화 내용이 보여요.</p>
+      <div id="todaySummary" class="summary"></div>
+      <ul id="todayList" class="entry-list"></ul>
+    </section>
+
+    <!-- 기록 -->
+    <section id="view-history" class="view" aria-labelledby="historyTitle" hidden>
+      <div class="section-head"><h2 id="historyTitle">기록</h2></div>
+      <div id="catFilter" class="chips" role="group" aria-label="분류 필터"></div>
+      <div id="historyList"></div>
+    </section>
+
+    <!-- 설정 -->
+    <section id="view-settings" class="view" aria-labelledby="settingsTitle" hidden>
+      <div class="section-head"><h2 id="settingsTitle">설정</h2></div>
+
+      <div class="card setting" id="micCard" hidden>
+        <h3>마이크 장치</h3>
+        <p class="muted small">운동할 때 쓸 마이크를 골라요. 블루투스 이어폰·유선 헤드셋은 먼저 폰에 연결하면 목록에 나와요. 고른 마이크는 기억하고, 연결이 끊기면 휴대폰 마이크로 이어서 들어요.</p>
+        <div class="row"><span>지금 듣는 마이크</span><b id="micActive">확인 중</b></div>
+        <div id="micList" class="mic-list" role="radiogroup" aria-label="마이크 장치"></div>
+        <p class="muted small">블루투스 이어폰 마이크를 쓰면 듣는 동안 이어폰이 통화 모드로 바뀌어 안내 음성 음질이 잠깐 낮아질 수 있어요. 마이크를 바꾸면 <b>내 목소리 등록</b>도 그 마이크로 다시 해 주세요.</p>
+      </div>
+
+      <div class="card setting" id="privacyCard">
+        <h3>외부로 전송되는 내용</h3>
+        <ul class="privacy-list small">
+          <li><b>음성 인식</b>: 자동 모드에서 OpenAI 키가 있으면 일반 대화 녹음을 OpenAI로 보내 인식해요. 호출어 대기와 실시간 카운트는 기기 음성 인식 서비스를 사용해요.</li>
+          <li><b>내 OpenAI 키를 넣은 경우</b>: 현재 문장, 최근 대화 최대 8개와 직전 운동 기록이 의도 해석을 위해 OpenAI로 전송돼요. 목소리 등록 녹음도 품질 확인에 사용돼요. 자연스러운 AI 음성을 켜면 답변 문장도 음성 생성에 전송되며 사용량에 따라 과금돼요.</li>
+          <li><b>저장</b>: 음성 녹음 파일은 저장하지 않아요. 운동 기록·API 키·목소리 지문은 <b>이 기기에만</b> 저장돼요.</li>
+        </ul>
+      </div>
+
+      <div class="card setting">
+        <h3>호출어</h3>
+        <p class="muted small">이 말을 하면 VOICE FIT 이 대답하고 운동을 물어봐요.</p>
+        <div class="wake-current">현재 호출어: <b id="wakeCurrent">없음</b></div>
+        <div class="btn-row">
+          <button id="wakeEnrollBtn" class="btn small" type="button">마이크로 등록</button>
+        </div>
+        <form id="wakeForm" class="text-form inline" autocomplete="off">
+          <label for="wakeInput" class="sr-only">호출어 직접 입력</label>
+          <input id="wakeInput" type="text" maxlength="20" placeholder="또는 직접 입력 (예: 헤이 코치)" />
+          <button type="submit" class="btn ghost">저장</button>
+        </form>
+      </div>
+
+      <div class="card setting" id="gateCard">
+        <h3>주변 소리 배제</h3>
+        <p class="muted small">오버워치의 ‘음성 감지 기준’처럼, 기준선보다 <b>작게 들어온 소리</b>(TV·음악·멀리 있는 사람 목소리)는 무시하고 폰 가까이서 말한 내 목소리만 받아요.</p>
+        <label class="row">
+          <span>주변 소리 배제</span>
+          <input id="gateToggle" type="checkbox" class="switch" />
+        </label>
+        <div class="gate-meter" aria-hidden="true">
+          <div id="gateFill" class="gate-fill"></div>
+          <div id="gateMark" class="gate-mark"></div>
+        </div>
+        <p class="muted small" id="gateHint">말해 보면 막대가 움직여요. 내 목소리는 기준선을 넘고, 주변 소리는 넘지 않게 맞추세요.</p>
+        <label class="row">
+          <span>음성 감지 기준 <b id="gateValue"></b></span>
+          <input id="gateLevel" type="range" min="-2" max="12" step="0.5" />
+        </label>
+        <button id="gateCalibrateBtn" class="btn small" type="button">내 목소리로 자동 맞추기</button>
+
+        <h3 class="sub-h">내 목소리만 듣기</h3>
+        <p class="muted small">기기 인식에서 등록한 음색을 기준으로 소리를 거르는 실험 기능이에요. 조용한 발음까지 잘라낼 수 있어요. OpenAI 일반 대화에서는 문장 보존을 위해 이 필터를 적용하지 않으며, 주변 사람의 말도 들어올 수 있어요. 화자 인증 기능은 아니에요.</p>
+        <div class="row"><span>등록 상태</span><b id="voiceState">확인 중</b></div>
+        <label class="row">
+          <span>내 목소리만 듣기</span>
+          <input id="voiceLockToggle" type="checkbox" class="switch" />
+        </label>
+        <div class="btn-row">
+          <button id="voiceEnrollBtn" class="btn small" type="button">내 목소리 등록하기</button>
+          <button id="voiceClearBtn" class="btn danger small" type="button">등록 지우기</button>
+        </div>
+        <p class="muted small" id="voiceHint"></p>
+      </div>
+
+      <div class="card setting" id="keyCard">
+        <h3>AI 연결 (내 OpenAI 키)</h3>
+        <p class="muted small">내 OpenAI API 키를 넣으면 AI 가 말을 더 똑똑하게 알아들어요. 키는 <b>이 기기에만</b> 저장되고 VOICE FIT 서버로는 보내지 않아요. 요금은 키 주인의 OpenAI 계정에서 나가요. 키가 없으면 오프라인 해석으로 동작해요.</p>
+        <div class="row"><span>현재 키</span><b id="keyState">확인 중</b></div>
+        <form id="keyForm" class="text-form inline" autocomplete="off">
+          <label for="keyInput" class="sr-only">OpenAI API 키</label>
+          <input id="keyInput" type="password" placeholder="sk-..." autocomplete="off" spellcheck="false" />
+          <button id="keySaveBtn" type="submit" class="btn">저장</button>
+        </form>
+        <div class="btn-row" style="margin-top:8px">
+          <button id="keyTestBtn" class="btn ghost small" type="button">연결 테스트</button>
+          <button id="keyDeleteBtn" class="btn danger small" type="button">키 지우기</button>
+        </div>
+        <p class="muted small">키 발급: platform.openai.com → API keys. 공용 컴퓨터의 브라우저에는 키를 저장하지 마세요.</p>
+      </div>
+
+      <div class="card setting" id="bgCard" hidden>
+        <h3>홈 화면에서도 호출</h3>
+        <p class="muted small">다른 앱을 쓰거나 홈 화면에 있어도, <b>화면이 꺼져 있어도</b> 호출어를 부르면 짧은 신호음과 함께 화면이 켜지고 잠금화면 위에서 바로 대답해요. 대화가 끝나면 원래 화면(잠금화면)으로 돌아가요. 운동 중 화면이 꺼져도 카운트·타이머는 계속돼요.</p>
+        <label class="row">
+          <span>홈 화면에서도 듣기</span>
+          <input id="bgToggle" type="checkbox" class="switch" />
+        </label>
+        <div class="row"><span>다른 앱 위에 표시</span><b id="bgOverlay">확인 중</b></div>
+        <div class="row"><span>알림</span><b id="bgNotif">확인 중</b></div>
+        <label class="row">
+          <span>배터리 최적화 끄기 <small class="muted" id="bgBattery">확인 중</small></span>
+          <input id="bgBatteryToggle" type="checkbox" class="switch" />
+        </label>
+        <p class="muted small" id="bgBatteryHint">켜면 화면이 꺼져 있어도 호출을 놓치지 않아요(배터리는 조금 더 써요). 끄면 안드로이드 설정 화면이 열려요 → <b>배터리</b> → <b>최적화</b>를 고르면 돼요.</p>
+        <div class="row"><span>상태</span><b id="bgRunning">확인 중</b></div>
+        <button id="bgPermBtn" class="btn small" type="button">권한 허용하기</button>
+      </div>
+
+      <div class="card setting">
+        <h3>전화 응대</h3>
+        <div id="phoneNative" hidden>
+          <p class="muted small">운동 중 전화가 오면 이름(없으면 번호)을 읽어 주고, 받기·끊기·문자 남기기를 말로 고를 수 있어요.</p>
+          <div class="row"><span>권한 상태</span><b id="phonePermState">확인 중</b></div>
+          <button id="phonePermBtn" class="btn small" type="button">전화·연락처·문자 권한 허용</button>
+        </div>
+        <div id="phoneDemo">
+          <p class="muted small">웹 브라우저는 실제 전화를 다룰 수 없어서 <b>시연 모드</b>로 동작해요. 안드로이드 앱에서는 실제 전화를 감지하고 받기·끊기·문자 전송까지 해요.</p>
+          <label class="row"><span>보낸 사람 번호</span><input id="demoNumber" class="field" type="tel" value="010-1234-5678" /></label>
+          <label class="row"><span>연락처 이름 (비우면 번호)</span><input id="demoName" class="field" type="text" value="엄마" /></label>
+          <button id="demoCallBtn" class="btn small" type="button">전화 수신 시뮬레이션</button>
+        </div>
+      </div>
+
+      <div class="card setting">
+        <h3>테마</h3>
+        <div id="themePicker" class="theme-picker" role="radiogroup" aria-label="테마"></div>
+      </div>
+
+      <div class="card setting">
+        <h3>음성</h3>
+        <label class="row">
+          <span>음성으로 대답하기</span>
+          <input id="voiceFeedback" type="checkbox" class="switch" />
+        </label>
+        <label class="row">
+          <span>말하기 속도 <b id="rateValue"></b></span>
+          <input id="rate" type="range" min="0.7" max="1.5" step="0.05" />
+        </label>
+        <label class="row"><span>자연스러운 AI 음성 (추가 사용료)</span><input id="naturalVoice" type="checkbox" class="switch" /></label>
+        <p class="muted small">기본은 꺼져 있어요. 켜면 답변 문장이 OpenAI로 전송되고 사용량만큼 내 키로 과금돼요. 홈의 ‘AI 목소리’ 버튼으로도 언제든 켜고 끌 수 있어요. AI가 생성한 목소리예요. 연결이 안 되면 기기 목소리로 안내해요. 카운트·타이머 알림은 빠른 기기 목소리를 사용해요.</p>
+        <label class="row" id="engineRow">
+          <span>음성 인식 엔진</span>
+          <select id="engine">
+            <option value="auto">자동 (키가 있으면 OpenAI)</option>
+            <option value="browser">기기 기본 인식</option>
+            <option value="openai">OpenAI 고정확도 인식</option>
+          </select>
+        </label>
+        <p id="engineInfo" class="muted small"></p>
+      </div>
+
+
+
+      <div class="card setting">
+        <h3>데이터</h3>
+        <p class="muted small">기록은 이 기기에만 저장돼요.</p>
+        <div class="btn-row">
+          <button id="exportBtn" class="btn ghost" type="button">JSON 내보내기</button>
+          <button id="resetBtn" class="btn danger" type="button">전체 삭제</button>
+          <button id="wipeAllBtn" class="btn danger" type="button">모든 데이터 지우기 (키·목소리 포함)</button>
+        </div>
+      </div>
+      <p class="muted small center">VOICE FIT v0.2 · H-퓨처랩 AI·ICT 캠프</p>
+    </section>
+  </main>
+
+  <!-- 전화 수신 창 -->
+  <div id="callSheet" class="call-sheet" hidden role="dialog" aria-modal="true" aria-labelledby="callName">
+    <div class="call-card">
+      <span id="callMode" class="source"></span>
+      <div class="call-ring" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1A17 17 0 0 1 3 4c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1l-2.3 2.2Z"/></svg>
+      </div>
+      <h2 id="callName" class="call-name"></h2>
+      <p id="callNumber" class="muted"></p>
+      <p id="callStatus" class="call-status" aria-live="polite"></p>
+      <div class="call-actions">
+        <button class="call-btn answer" type="button" data-call="받아">받기</button>
+        <button class="call-btn reject" type="button" data-call="끊어">끊기</button>
+        <button class="call-btn message" type="button" data-call="문자 남겨">문자</button>
+      </div>
+      <form id="callMsgForm" class="text-form" autocomplete="off">
+        <label for="callMsgInput" class="sr-only">대답 또는 문자 내용</label>
+        <input id="callMsgInput" type="text" maxlength="300" placeholder="말 대신 입력할 수도 있어요" />
+        <button type="submit" class="btn">보내기</button>
+      </form>
+    </div>
+  </div>
+
+  <nav class="tabbar" aria-label="메뉴">
+    <button class="tab active" data-view="home" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-2.08A7 7 0 0 0 19 12h-2Z"/></svg>
+      <span>기록하기</span>
+    </button>
+    <button class="tab" data-view="history" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v2H4V5Zm0 6h16v2H4v-2Zm0 6h10v2H4v-2Z"/></svg>
+      <span>기록</span>
+    </button>
+    <button class="tab" data-view="settings" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3.3h-4l-.4 2.7a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.4L6.6 11a7.6 7.6 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1c.5.4 1.1.8 1.7 1l.4 2.7h4l.4-2.7c.6-.2 1.2-.6 1.7-1l2.5 1 2-3.4L19.4 13ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
+      <span>설정</span>
+    </button>
+  </nav>
+
+  <!-- PLAN 13 · 운동 종료 후 결과 요약 -->
+  <div id="summarySheet" class="sheet" hidden>
+    <div class="sheet-body card" role="dialog" aria-modal="true" aria-labelledby="summaryTitle">
+      <h2 id="summaryTitle">운동 결과 요약</h2>
+      <p id="summaryWhen" class="muted small"></p>
+      <ul id="summaryList" class="summary-list"></ul>
+      <div class="summary two">
+        <div class="stat"><b id="sumTotal">0분</b><span>전체 운동 시간</span></div>
+        <div class="stat"><b id="sumRest">0초</b><span>전체 휴식 시간</span></div>
+      </div>
+      <button id="summaryHomeBtn" class="btn" type="button">홈으로</button>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

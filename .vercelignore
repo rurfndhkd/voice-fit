@@ -1,0 +1,8 @@
+# 배포에 필요 없는 것 (안드로이드 프로젝트, 패키지, 테스트, 로컬 설정)
+android
+node_modules
+tests
+.claude
+.env
+.env.local
+server.mjs

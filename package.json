@@ -1,0 +1,22 @@
+{
+  "name": "voice-fit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "VOICE FIT - 음성으로 기록하는 AI 운동 트레이너 (PWA)",
+  "scripts": {
+    "dev": "node server.mjs",
+    "test": "node --test tests/"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@capacitor-community/text-to-speech": "^8.0.2",
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/core": "^8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.6.2"
+  }
+}

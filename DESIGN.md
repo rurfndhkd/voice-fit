@@ -210,6 +210,7 @@ voice-fit/
 │   ├── VoiceListenerPlugin.java# 듣기, 목소리 등록, 마이크 목록
 │   ├── UtteranceRecorder.java  # OpenAI 인식용 한 문장 녹음 (메모리에만)
 │   ├── GatedRecognizer.java    # 소리 배제·내 목소리만 듣기
+│   ├── BurstDetector.java      # 말소리 시작·끝 감지 (카운트 모드의 숫자 한 덩어리씩)
 │   ├── MicRoute.java           # 유선·블루투스 마이크 연결
 │   ├── VoicePrint.java         # 목소리 특징값
 │   ├── WakeWordMatcher.java    # 호출어 비교

@@ -148,7 +148,7 @@ public class VoiceListenerPlugin extends Plugin {
         final String id = call.getString("id", "");
         final int waitMs = Math.max(1000, Math.min(30000, call.getInt("waitMs", 10000)));
         final int maxMs = Math.max(1000, Math.min(30000, call.getInt("maxMs", 30000)));
-        final int silenceMs = Math.max(800, Math.min(4000, call.getInt("silenceMs", 1800)));
+        final int silenceMs = Math.max(800, Math.min(4000, call.getInt("silenceMs", SpeechEndpoint.SILENCE_MS)));
         main.post(() -> {
             if (backgrounded || enrolling || utteranceRecorder != null) { call.reject("busy"); return; }
             if (rec != null) rec.destroy();

@@ -1,8 +1,8 @@
 // 오프라인에서도 앱 화면이 열리도록 정적 파일을 캐시한다. /api 요청은 캐시하지 않는다.
-const CACHE = 'voicefit-v16-voice';
+const CACHE = 'voicefit-v17-voice';
 const ASSETS = [
   '/', '/index.html', '/styles.css', '/manifest.webmanifest', '/icon.svg',
-  '/js/intent.js',
+  '/js/intent.js', '/js/endpoint.js',
   '/js/app.js', '/js/ai.js', '/js/store.js', '/js/speech.js', '/js/parser-local.js', '/js/schema.js', '/js/themes.js',
   '/js/config.js', '/js/format.js', '/js/wake.js', '/js/counting.js', '/js/dialogs.js', '/js/phone.js', '/js/background.js', '/js/understand.js', '/js/mic.js', '/js/commands.js', '/js/summary.js', '/js/answer.js',
 ];

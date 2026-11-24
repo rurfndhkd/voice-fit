@@ -50,7 +50,7 @@ test('native PCM -> OpenAI: ready/speech/processing events, context, final text 
   memory.set('vf.openaiKey.v1', 'test-only-key');
   const events = [];
   recordingImpl = async ({ id, silenceMs }) => {
-    assert.equal(silenceMs, 1800);
+    assert.equal(silenceMs, 1500);
     emit('recordReady', { id });
     emit('recordLevel', { id, speech: true, level: 4 });
     return { wav: btoa('RIFF-test') };
